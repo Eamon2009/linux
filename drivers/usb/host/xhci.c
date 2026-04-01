@@ -1641,7 +1641,7 @@ static int xhci_urb_enqueue(struct usb_hcd *hcd, struct urb *urb, gfp_t mem_flag
 	else
 		num_tds = 1;
 
-	urb_priv = kzalloc(struct_size(urb_priv, td, num_tds), mem_flags);
+	urb_priv = kzalloc_flex(*urb_priv, td, num_tds, mem_flags);
 	if (!urb_priv)
 		return -ENOMEM;
 
@@ -2898,16 +2898,25 @@ int xhci_stop_endpoint_sync(struct xhci_hcd *xhci, struct xhci_virt_ep *ep, int 
 			    gfp_t gfp_flags)
 {
 	struct xhci_command *command;
+	struct xhci_ep_ctx *ep_ctx;
 	unsigned long flags;
-	int ret;
+	int ret = -ENODEV;
 
 	command = xhci_alloc_command(xhci, true, gfp_flags);
 	if (!command)
 		return -ENOMEM;
 
 	spin_lock_irqsave(&xhci->lock, flags);
-	ret = xhci_queue_stop_endpoint(xhci, command, ep->vdev->slot_id,
-				       ep->ep_index, suspend);
+
+	/* make sure endpoint exists and is running before stopping it */
+	if (ep->ring) {
+		ep_ctx = xhci_get_ep_ctx(xhci, ep->vdev->out_ctx, ep->ep_index);
+		if (GET_EP_CTX_STATE(ep_ctx) == EP_STATE_RUNNING)
+			ret = xhci_queue_stop_endpoint(xhci, command,
+						       ep->vdev->slot_id,
+						       ep->ep_index, suspend);
+	}
+
 	if (ret < 0) {
 		spin_unlock_irqrestore(&xhci->lock, flags);
 		goto out;
@@ -4137,7 +4146,7 @@ int xhci_disable_slot(struct xhci_hcd *xhci, u32 slot_id)
 	if (state == 0xffffffff || (xhci->xhc_state & XHCI_STATE_DYING) ||
 			(xhci->xhc_state & XHCI_STATE_HALTED)) {
 		spin_unlock_irqrestore(&xhci->lock, flags);
-		kfree(command);
+		xhci_free_command(xhci, command);
 		return -ENODEV;
 	}
 
@@ -4145,7 +4154,7 @@ int xhci_disable_slot(struct xhci_hcd *xhci, u32 slot_id)
 				slot_id);
 	if (ret) {
 		spin_unlock_irqrestore(&xhci->lock, flags);
-		kfree(command);
+		xhci_free_command(xhci, command);
 		return ret;
 	}
 	xhci_ring_cmd_db(xhci);

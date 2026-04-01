@@ -543,7 +543,7 @@ s32 scx_select_cpu_dfl(struct task_struct *p, s32 prev_cpu, u64 wake_flags,
 		 * piled up on it even if there is an idle core elsewhere on
 		 * the system.
 		 */
-		waker_node = cpu_to_node(cpu);
+		waker_node = scx_cpu_node_if_enabled(cpu);
 		if (!(current->flags & PF_EXITING) &&
 		    cpu_rq(cpu)->scx.local_dsq.nr == 0 &&
 		    (!(flags & SCX_PICK_IDLE_IN_NODE) || (waker_node == node)) &&
@@ -663,9 +663,8 @@ void scx_idle_init_masks(void)
 	BUG_ON(!alloc_cpumask_var(&scx_idle_global_masks.cpu, GFP_KERNEL));
 	BUG_ON(!alloc_cpumask_var(&scx_idle_global_masks.smt, GFP_KERNEL));
 
-	/* Allocate per-node idle cpumasks */
-	scx_idle_node_masks = kcalloc(num_possible_nodes(),
-				      sizeof(*scx_idle_node_masks), GFP_KERNEL);
+	/* Allocate per-node idle cpumasks (use nr_node_ids for non-contiguous NUMA nodes) */
+	scx_idle_node_masks = kzalloc_objs(*scx_idle_node_masks, nr_node_ids);
 	BUG_ON(!scx_idle_node_masks);
 
 	for_each_node(i) {
